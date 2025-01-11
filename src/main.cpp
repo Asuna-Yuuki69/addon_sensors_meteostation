@@ -3,11 +3,58 @@
 #include <esp_mac.h>
 #include <WiFi.h>
 #include <PubSubClient.h> // MQTT library
+#define XPOWERS_CHIP_AXP2101
+#include "XPowersLib.h"
+#include "utilities.h"
 
-//Constants
+XPowersPMU  PMU;
+
+// See all AT commands, if wanted
+#define DUMP_AT_COMMANDS
+
+#define TINY_GSM_RX_BUFFER 1024
+#define TINY_GSM_MODEM_SIM7080  // Define the modem you're using
+#include <TinyGsmClient.h>
+
+#ifdef DUMP_AT_COMMANDS
+#include <StreamDebugger.h>
+StreamDebugger debugger(Serial1, Serial);
+TinyGsm        modem(debugger);
+#else
+TinyGsm        modem(SerialAT);
+#endif
+//co to kurva je pls help ??
+const char *register_info[] = {
+    "Not registered, MT is not currently searching an operator to register to.The GPRS service is disabled, the UE is allowed to attach for GPRS if requested by the user.",
+    "Registered, home network.",
+    "Not registered, but MT is currently trying to attach or searching an operator to register to. The GPRS service is enabled, but an allowable PLMN is currently not available. The UE will start a GPRS attach as soon as an allowable PLMN is available.",
+    "Registration denied, The GPRS service is disabled, the UE is not allowed to attach for GPRS if it is requested by the user.",
+    "Unknown.",
+    "Registered, roaming.",
+};
+//konec amogus zpravy 
+enum {
+    MODEM_CATM = 1,
+    MODEM_NB_IOT,
+    MODEM_CATM_NBIOT,
+};
+
+//gprs creds  type shiii
+const char apn[] = "lpwa.vodafone.com";
+const char gprsUser[] = "easy";
+const char gprsPass[] = "connect";
+
+//mqtt connect creds ifk
+const char server[]   = "xtomi.czella.net";
+const int  port       = 64525;
+char buffer[1024] = {0};
+char username[] = "meteo";
+char password[] = "<Meteo123..";
+char clientID[] = "meteoespdomecek";
 #define DHTPIN 10     // what pin we're connected to
 #define DHTTYPE DHT22   // DHT22
 #define ANEMOMETER_PIN 13 // The pin connected to the anemometer signal
+
 volatile unsigned int pulseCount = 0; // Counter for pulses
 float windSpeed = 0.0; // Calculated wind speed (m/s or other units depending on calibration)
 unsigned long lastMillis = 0; // Track the last time we calculated wind speed
@@ -104,6 +151,7 @@ const int sensorPin = 03; // ADC pin for wind vane sensor
 
 void setup() 
 {
+
   Serial.begin(9600);
   //Initialize the DHT sensor
   dht.begin();
