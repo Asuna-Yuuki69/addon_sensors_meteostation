@@ -140,7 +140,54 @@ const int sensorPin = 03; // ADC pin for wind vane sensor
 void setup() 
 {
 
-  Serial.begin(9600);
+  Serial.begin(115200);
+  while (!Serial);
+
+  delay(3000);
+  Serial.println();
+  //power chip and modem initialization
+  if (!PMU.begin(Wire, AXP2101_SLAVE_ADDRESS, I2C_SDA, I2C_SCL)) {
+      Serial.println("power init failed :(");
+      while (1) {
+          delay(5000);
+      }
+  }
+
+  if (esp_sleep_get_wakeup_cause() == ESP_SLEEP_WAKEUP_UNDEFINED ) {
+      PMU.disableDC3();
+
+      delay(200);
+  }
+
+  PMU.setDC3Voltage(3000);
+  PMU.enableDC3();
+
+
+
+  PMU.disableTSPinMeasure();
+
+  Serial1.begin(115200, SERIAL_8N1, BOARD_MODEM_RXD_PIN, BOARD_MODEM_TXD_PIN);
+  pinMode(BOARD_MODEM_PWR_PIN, OUTPUT);
+  pinMode(BOARD_MODEM_DTR_PIN, OUTPUT);
+  pinMode(BOARD_MODEM_RI_PIN, INPUT);
+  int retry = 0;
+  while (!modem.testAT(1000)) {
+      Serial.print(".");
+      if (retry++ > 6) {
+          // Pull down PWRKEY for more than 1 second according to manual requirements
+          digitalWrite(BOARD_MODEM_PWR_PIN, LOW);
+          delay(100);
+          digitalWrite(BOARD_MODEM_PWR_PIN, HIGH);
+          delay(1000);
+          digitalWrite(BOARD_MODEM_PWR_PIN, LOW);
+          retry = 0;
+          Serial.println("Retry start modem .");
+      }
+  }
+  Serial.println();
+  Serial.print("Modem started!");
+
+  
   //Initialize the DHT sensor
   dht.begin();
   delay(5000);
