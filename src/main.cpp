@@ -290,8 +290,6 @@ void setup()
 
   pinMode(ANEMOMETER_PIN, INPUT_PULLUP); // Set the pin as input with pullup resistor
   attachInterrupt(digitalPinToInterrupt(ANEMOMETER_PIN), countPulse, FALLING); // Interrupt on falling edge
- 
-
 
   analogReadResolution(12); // Set ADC resolution to 12 bits
 }
@@ -303,81 +301,17 @@ void loop()
         return ;
     }
     Serial.println();
-    // Publish fake temperature data
+
+    // Create payload for temperature and humidity
     String payload = "temp,c=";
     int temp =  rand() % (randMax - randMin) + randMin;
     payload.concat(temp);
+    payload.concat(",humidity,percent=");
+    int humidity = rand() % 100; // Replace with actual humidity reading
+    payload.concat(humidity);
     payload.concat("\r\n");
 
-
-
-    delay(60000);
-
-    float converted = 0.00;
-    unsigned long currentMillis = millis();
-
-   // Calculate wind speed every second (1000 ms)
-    if (currentMillis - lastMillis >= 1000) {
-      detachInterrupt(digitalPinToInterrupt(ANEMOMETER_PIN)); // Temporarily disable interrupt
-
-      // Calculate wind speed in desired units
-      windSpeed = (pulseCount / CALIBRATION_FACTOR);
-
-      // Print the wind speed
-      Serial.print("Wind Speed: ");
-      Serial.print(windSpeed);
-      Serial.println(" m/s");
-
-      // Reset pulse count and timestamp
-      pulseCount = 0;
-      lastMillis = currentMillis;
-
-      attachInterrupt(digitalPinToInterrupt(ANEMOMETER_PIN), countPulse, FALLING); // Re-enable interrupt
-    }
-    
-
-
-    int adcValue = analogRead(sensorPin);
-    float voltage = (adcValue / 4095.0) * 3.3; // Convert ADC value to voltage
-    float resistance = (3300.0 / voltage) - 1000; // Convert voltage to resistance (assuming a 3.3V reference and 1k pull-down resistor)
-
-    float windDirection = getWindDirection(resistance);
-    Serial.print("Wind Direction: ");
-    Serial.print(windDirection);
-    Serial.println(" degrees");
-
-    delay(1000); // Delay for 1 second
-    // Read data and store it to variables hum and temp
-    hum = dht.readHumidity();
-    temp= dht.readTemperature();
-
-    Serial.print("Celsius = ");
-    Serial.print(temp);
-    // Print degree symbol
-    Serial.write(176); 
-    Serial.println("C");
-
-    // Kelvin
-    // T(K) = T(°C) + 273.15          
-    converted = temp + 273.15;
-    Serial.print("Kelvin = ");
-    Serial.print(converted);
-    Serial.println(" K");
-
-    // Print degree symbol
-    Serial.write(176);    
-    Serial.println("R");
-
-    Serial.print("Humidity =");
-    Serial.println(hum);
-
-
-
-
-
-
-
-    // AT+SMPUB=<topic>,<content length>,<qos>,<retain><CR>message is enteredQuit edit mode if messagelength equals to <contentlength>
+    // Publish payload
     snprintf(buffer, 1024, "+SMPUB=\"v1/%s/things/%s/data/%d\",%d,1,1", username, clientID, data_channel, payload.length());
     modem.sendAT(buffer);
     if (modem.waitResponse(">") == 1) {
@@ -392,8 +326,40 @@ void loop()
         }
     }
 
+    delay(60000);
 
-    // 2000ms delay between reads
-    delay(2000);
+    float converted = 0.00;
+    unsigned long currentMillis = millis();
 
+    // Calculate wind speed every second (1000 ms)
+    if (currentMillis - lastMillis >= 1000) {
+        detachInterrupt(digitalPinToInterrupt(ANEMOMETER_PIN)); // Temporarily disable interrupt
+
+        // Calculate wind speed in desired units
+        windSpeed = (pulseCount / CALIBRATION_FACTOR);
+
+        // Create payload for wind speed
+        String windPayload = "wind_speed,m/s=";
+        windPayload.concat(windSpeed);
+        windPayload.concat("\r\n");
+
+        // Publish wind speed payload
+        snprintf(buffer, 1024, "+SMPUB=\"v1/%s/things/%s/data/%d\",%d,1,1", username, clientID, data_channel, windPayload.length());
+        modem.sendAT(buffer);
+        if (modem.waitResponse(">") == 1) {
+            modem.stream.write(windPayload.c_str(), windPayload.length());
+            Serial.print("Try publish wind payload: ");
+            Serial.println(windPayload);
+
+            if (modem.waitResponse(3000)) {
+                Serial.println("Send Packet success!");
+            } else {
+                Serial.println("Send Packet failed!");
+            }
+        }
+
+        // Reset pulse count and timestamp
+        pulseCount = 0;
+        lastMillis = currentMillis;
+    }
 }
