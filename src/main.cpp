@@ -44,15 +44,16 @@ const char apn[] = "lpwa.vodafone.com";
 const char gprsUser[] = "easy";
 const char gprsPass[] = "connect";
 
-//mqtt connect creds ifk
+//mqtt connect creds ifk 
 const char server[]   = "xtomi.czella.net";
 const int  port       = 64525;
 char buffer[1024] = {0};
 char username[] = "meteo";
-char password[] = "<Meteo123..";
+char password[] = "Meteo123..";
 char clientID[] = "meteoespdomecek";
 int data_channel = 0;
-
+const int randMax = 100; // Define a maximum random value
+const int randMin = 0;   // Define a minimum random value
 
 bool isConnect()
 {
@@ -187,14 +188,109 @@ void setup()
   Serial.println();
   Serial.print("Modem started!");
 
+  String result ;
   
+
+  if (modem.getSimStatus() != SIM_READY) {
+      Serial.println("SIM Card is not insert!!!");
+        return ;
+  }
+  modem.setNetworkMode(2);    //use automatic
+
+  modem.setPreferredMode(MODEM_NB_IOT);
+
+  uint8_t pre = modem.getPreferredMode();
+
+  uint8_t mode = modem.getNetworkMode();
+
+  Serial.printf("getNetworkMode:%u getPreferredMode:%u\n", mode, pre);
+
+      SIM70xxRegStatus s;
+    do {
+        s = modem.getRegistrationStatus();
+        if (s != REG_OK_HOME && s != REG_OK_ROAMING) {
+            Serial.print(".");
+            delay(1000);
+        }
+
+    } while (s != REG_OK_HOME && s != REG_OK_ROAMING) ;
+
+    Serial.println();
+    Serial.print("Network register info:");
+    Serial.println(register_info[s]);
+
+    bool res = modem.isGprsConnected();
+    if (!res) {
+        modem.sendAT("+CNACT=0,1");
+        if (modem.waitResponse() != 1) {
+            Serial.println("Activate network bearer Failed!");
+            return;
+        }
+        // if (!modem.gprsConnect(apn, gprsUser, gprsPass)) {
+        //     return ;
+        // }
+    }
+
+    Serial.print("GPRS status:");
+    Serial.println(res ? "connected" : "not connected");
+
+
+    /*********************************
+    * step 6 : setup MQTT Client
+    ***********************************/
+ 
+    // If it is already connected, disconnect it first
+    modem.sendAT("+SMDISC");
+    modem.waitResponse();
+
+
+    snprintf(buffer, 1024, "+SMCONF=\"URL\",\"%s\",%d", server, port);
+    modem.sendAT(buffer);
+    if (modem.waitResponse() != 1) {
+        return;
+    }
+    snprintf(buffer, 1024, "+SMCONF=\"USERNAME\",\"%s\"", username);
+    modem.sendAT(buffer);
+    if (modem.waitResponse() != 1) {
+        return;
+    }
+
+    snprintf(buffer, 1024, "+SMCONF=\"PASSWORD\",\"%s\"", password);
+    modem.sendAT(buffer);
+    if (modem.waitResponse() != 1) {
+        return;
+    }
+
+    snprintf(buffer, 1024, "+SMCONF=\"CLIENTID\",\"%s\"", clientID);
+    modem.sendAT(buffer);
+    if (modem.waitResponse() != 1) {
+        return;
+    }
+    int8_t ret;
+    do {
+
+        modem.sendAT("+SMCONN");
+        ret = modem.waitResponse(30000);
+        if (ret != 1) {
+            Serial.println("Connect failed, retry connect ..."); delay(1000);
+        }
+
+    } while (ret != 1);
+
+    Serial.println("MQTT Client connected!");
+
+    // random seed data
+    randomSeed(esp_random());
+
+ 
+ 
   //Initialize the DHT sensor
   dht.begin();
   delay(5000);
 
   pinMode(ANEMOMETER_PIN, INPUT_PULLUP); // Set the pin as input with pullup resistor
   attachInterrupt(digitalPinToInterrupt(ANEMOMETER_PIN), countPulse, FALLING); // Interrupt on falling edge
-
+ 
 
 
   analogReadResolution(12); // Set ADC resolution to 12 bits
@@ -202,6 +298,21 @@ void setup()
 
 void loop() 
 { 
+    if (!isConnect()) {
+        Serial.println("MQTT Client disconnect!"); delay(1000);
+        return ;
+    }
+    Serial.println();
+    // Publish fake temperature data
+    String payload = "temp,c=";
+    int temp =  rand() % (randMax - randMin) + randMin;
+    payload.concat(temp);
+    payload.concat("\r\n");
+
+
+
+    delay(60000);
+
     float converted = 0.00;
     unsigned long currentMillis = millis();
 
@@ -260,6 +371,26 @@ void loop()
     Serial.print("Humidity =");
     Serial.println(hum);
 
+
+
+
+
+
+
+    // AT+SMPUB=<topic>,<content length>,<qos>,<retain><CR>message is enteredQuit edit mode if messagelength equals to <contentlength>
+    snprintf(buffer, 1024, "+SMPUB=\"v1/%s/things/%s/data/%d\",%d,1,1", username, clientID, data_channel, payload.length());
+    modem.sendAT(buffer);
+    if (modem.waitResponse(">") == 1) {
+        modem.stream.write(payload.c_str(), payload.length());
+        Serial.print("Try publish payload: ");
+        Serial.println(payload);
+
+        if (modem.waitResponse(3000)) {
+            Serial.println("Send Packet success!");
+        } else {
+            Serial.println("Send Packet failed!");
+        }
+    }
 
 
     // 2000ms delay between reads
